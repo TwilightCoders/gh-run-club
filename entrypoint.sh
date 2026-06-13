@@ -47,8 +47,9 @@ shutdown() {
     for repo in "${STARTED[@]:-}"; do
       [ -n "${repo:-}" ] || continue
       tok="$(api_token "$repo" remove 2>/dev/null || true)"
-      [ -n "$tok" ] && [ "$tok" != null ] && \
-        ( cd "${AGENTS_DIR}/${repo}" && ./config.sh remove --token "$tok" >/dev/null 2>&1 || true )
+      if [ -n "$tok" ] && [ "$tok" != null ]; then
+        ( cd "${AGENTS_DIR}/${repo}" && ./config.sh remove --token "$tok" ) >/dev/null 2>&1 || true
+      fi
     done
   else
     echo "[gh-run-club] token-only mode — leaving runners registered (credentials persist for next start)"

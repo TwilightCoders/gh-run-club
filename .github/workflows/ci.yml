@@ -11,8 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # shellcheck is preinstalled on ubuntu-latest runners.
-      - run: shellcheck entrypoint.sh test/shims/config.sh test/shims/run.sh test/shims/curl
+      # Pinned shellcheck image so CI and local runs use the exact same linter
+      # version (the runner's preinstalled shellcheck drifts between versions).
+      - run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.10.0 entrypoint.sh test/shims/config.sh test/shims/run.sh test/shims/curl
 
   unit:
     runs-on: ubuntu-latest
