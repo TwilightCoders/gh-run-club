@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Test shim for curl — stands in for the GitHub REST call that mints/removes a
+# registration token in PAT mode. Records the invocation (the URL reveals
+# whether it was a registration-token or remove-token call) and emits a JSON
+# body the real `jq -r .token` can parse.
+echo "curl $*" >> "${SHIM_LOG:?SHIM_LOG unset}"
+printf '{"token":"PAT_MINTED_TOKEN"}\n'
+exit 0

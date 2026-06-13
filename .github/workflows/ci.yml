@@ -1,0 +1,37 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # shellcheck is preinstalled on ubuntu-latest runners.
+      - run: shellcheck entrypoint.sh test/shims/config.sh test/shims/run.sh test/shims/curl
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y bats
+      - run: bats test/
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t gh-run-club:test .
+      # Regression guard: a #! entrypoint must be readable AND executable by the
+      # non-root 'runner' user (chmod +x alone on a 0700 file isn't enough).
+      - name: entrypoint readable + executable by runner
+        run: docker run --rm --entrypoint bash gh-run-club:test -c 'test -r /usr/local/bin/entrypoint.sh && test -x /usr/local/bin/entrypoint.sh'
+      # Regression guard: a fresh volume mounted at the agents dir must inherit
+      # runner-writable ownership (else mkdir of agent dirs fails at startup).
+      - name: agents dir writable by runner through a fresh volume
+        run: docker run --rm -v /home/runner/agents --entrypoint bash gh-run-club:test -c 'touch /home/runner/agents/.probe'

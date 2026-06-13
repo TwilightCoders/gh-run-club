@@ -32,8 +32,9 @@ api_token() { # $1=repo  $2=registration|remove  -> prints token (PAT mode only)
 }
 
 reg_token_for() { # $1=repo -> prints a registration token, or nothing
-  local key="REG_TOKEN_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr -c '[:alnum:]' '_')"
-  local val="${!key:-}"
+  local key val
+  key="REG_TOKEN_$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | tr -c '[:alnum:]' '_')"
+  val="${!key:-}"
   if [ -n "$val" ]; then printf '%s' "$val"; return 0; fi
   if [ -n "${ACCESS_TOKEN:-}" ]; then api_token "$1" registration; return 0; fi
   return 1
@@ -56,13 +57,14 @@ shutdown() {
 }
 trap shutdown SIGTERM SIGINT
 
+# shellcheck disable=SC2086  # REPOS is intentionally word-split into repo names
 for repo in $REPOS; do
   dir="${AGENTS_DIR}/${repo}"
   if [ -f "$dir/.runner" ] && [ -f "$dir/.credentials" ]; then
     echo "[gh-run-club] ${ORG}/${repo}: reusing persisted registration"
   else
     echo "[gh-run-club] ${ORG}/${repo}: registering"
-    mkdir -p "$dir"; cp -RT "$RUNNER_DIST" "$dir"
+    mkdir -p "$dir"; cp -R "$RUNNER_DIST/." "$dir"
     tok="$(reg_token_for "$repo" || true)"
     if [ -z "$tok" ] || [ "$tok" = "null" ]; then
       echo "[gh-run-club] FATAL: no registration token for ${ORG}/${repo} — set REG_TOKEN_<REPO> or ACCESS_TOKEN" >&2
