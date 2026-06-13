@@ -1,12 +1,19 @@
-# Copy to docker-compose.yml; put ACCESS_TOKEN in .env (gitignored).
+# Copy to docker-compose.yml; put tokens in .env (gitignored).
 services:
   runners:
     image: ghcr.io/twilightcoders/gh-run-club:latest   # or `build: .`
     container_name: gh-run-club
     restart: unless-stopped
-    env_file: .env          # ACCESS_TOKEN=<fine-grained PAT, Administration:RW on the repos>
+    env_file: .env          # REG_TOKEN_<REPO>=… per repo  (or ACCESS_TOKEN=<PAT>)
     environment:
       ORG: TwilightCoders
       REPOS: "vscode-alterminal claudepilot"   # +1 word per repo
       LABELS: "self-hosted,linux,x64,november"
       RUNNER_NAME_PREFIX: november
+    volumes:
+      # Persists each agent's registration so token-only mode survives restarts
+      # and reboots without re-minting tokens. (Wipe it to force re-registration,
+      # e.g. after a runner-version bump.)
+      - gh-run-club-agents:/home/runner/agents
+volumes:
+  gh-run-club-agents:

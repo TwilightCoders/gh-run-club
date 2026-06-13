@@ -2,7 +2,7 @@
 
 > The first rule of gh-run-club: you *do* talk about gh-run-club. (It's open source.)
 
-**One container, many [self-hosted GitHub Actions runner](https://docs.github.com/actions/hosting-your-own-runners) agents** — one per repo, from a single `REPOS` list and a single token.
+**One container, many [self-hosted GitHub Actions runner](https://docs.github.com/actions/hosting-your-own-runners) agents** — one per repo, from a single `REPOS` list. No PAT required: register each agent with a short-lived token and the credentials persist.
 
 ## Why
 
@@ -22,20 +22,32 @@ services:
   runners:
     image: ghcr.io/twilightcoders/gh-run-club:latest
     restart: unless-stopped
-    env_file: .env            # ACCESS_TOKEN=<PAT>
+    env_file: .env            # REG_TOKEN_<REPO> per repo  (or ACCESS_TOKEN=<PAT>)
     environment:
       ORG: your-org
       REPOS: "repo-a repo-b repo-c"
       LABELS: "self-hosted,linux,x64"
       RUNNER_NAME_PREFIX: $(hostname)
+    volumes:
+      - gh-run-club-agents:/home/runner/agents   # persists registrations
+volumes:
+  gh-run-club-agents:
 ```
 
+Mint one short-lived registration token per repo and drop them in `.env`:
+
 ```sh
-echo 'ACCESS_TOKEN=github_pat_xxx' > .env   # fine-grained PAT, Administration: R/W on those repos
+for r in repo-a repo-b repo-c; do
+  key="REG_TOKEN_$(echo "$r" | tr 'a-z-' 'A-Z_')"
+  tok=$(gh api -X POST repos/your-org/$r/actions/runners/registration-token --jq .token)
+  echo "$key=$tok"
+done > .env
 docker compose up -d
 ```
 
-Each repo gets an agent named `<prefix>-<repo>`, labelled per `LABELS`, with its own `_work` dir. The PAT mints a fresh registration token per agent at startup, so the container **survives recreate** (no single-use tokens to refresh).
+Each repo gets an agent named `<prefix>-<repo>`, labelled per `LABELS`, with its own `_work` dir. Agents register **once**; their credentials persist in the `gh-run-club-agents` volume and are reused on every restart/reboot — the tokens are spent after first boot, and **no admin credential lives on the host**.
+
+> Recreate-resilient variant: instead of `REG_TOKEN_*`, set `ACCESS_TOKEN` to a fine-grained PAT (repo **Administration: R/W**) and the container mints/refreshes registration tokens itself on every boot — at the cost of keeping a durable admin credential on the host. Pick whichever trade-off you prefer.
 
 ## Configuration
 
@@ -43,9 +55,13 @@ Each repo gets an agent named `<prefix>-<repo>`, labelled per `LABELS`, with its
 |---|---|---|---|
 | `ORG` | ✓ | — | GitHub org/user that owns the repos |
 | `REPOS` | ✓ | — | Space-separated repo names under `ORG` |
-| `ACCESS_TOKEN` | ✓ | — | Fine-grained PAT, **Administration: read+write** on each repo |
+| `REG_TOKEN_<REPO>` | ✓¹ | — | Short-lived registration token for that repo (repo name uppercased, non-alphanumerics → `_`). Used once; ignored after creds persist. |
+| `ACCESS_TOKEN` | ✓¹ | — | Alternative to `REG_TOKEN_*`: fine-grained PAT, **Administration: read+write** on each repo |
 | `LABELS` | | `self-hosted,linux,x64` | Runner labels (`runs-on:` targets these) |
 | `RUNNER_NAME_PREFIX` | | hostname | Agent names become `<prefix>-<repo>` |
+| `AGENTS_DIR` | | `$HOME/agents` | Where per-agent dirs + persisted creds live (mount as a volume) |
+
+¹ Provide **either** a `REG_TOKEN_<REPO>` per repo (token-only) **or** a single `ACCESS_TOKEN` (PAT). `REG_TOKEN_<REPO>` wins when both are set. Neither is needed once an agent's credentials are already persisted in `AGENTS_DIR`.
 
 ## Extending the image
 
@@ -64,7 +80,7 @@ USER runner
 
 ## How it works
 
-`entrypoint.sh` loops over `$REPOS`: copies the staged runner into a per-repo dir, mints a registration token from the PAT via the REST API, `config.sh`s an agent, and backgrounds `run.sh`. `SIGTERM` deregisters every agent. If any agent exits, the container tears down so your orchestrator (`restart: unless-stopped`) brings it back fresh.
+`entrypoint.sh` loops over `$REPOS`. For each repo, if persisted credentials already exist in `AGENTS_DIR` it just backgrounds `run.sh`; otherwise it copies the staged runner into a per-repo dir, registers via `config.sh` using that repo's `REG_TOKEN_<REPO>` (or a token minted from `ACCESS_TOKEN`), and backgrounds `run.sh`. On `SIGTERM`: in PAT mode it deregisters every agent; in token-only mode it leaves them registered so the persisted credentials are reused next start. If any agent exits, the container tears down so your orchestrator (`restart: unless-stopped`) brings it back.
 
 > One agent per repo means a runner dist is copied per repo (~a few hundred MB each). Fine for a handful of repos; if you run dozens, weigh org runners (Team) instead.
 
